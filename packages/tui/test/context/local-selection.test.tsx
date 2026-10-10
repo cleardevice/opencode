@@ -58,6 +58,40 @@ test("switching agents restores their model and variant within the session", asy
   expect(setup.local.model.selection()).toEqual({ providerID: "provider", modelID: "third", variant: "high" })
 })
 
+test("switching unpinned agents keeps the tab's model and variant", async () => {
+  await using setup = await renderLocal({
+    models: [model("first", ["low", "high"]), model("second", ["low", "high"]), model("third", ["low", "high"])],
+    agents: [agent("build"), agent("plan")],
+    sessions: [session("ses_first", { providerID: "provider", id: "first", variant: "low" })],
+    preferences: { recent: [{ providerID: "provider", modelID: "second" }] },
+  })
+  await setup.data.session.sync("ses_first")
+  setup.route.navigate({ type: "session", sessionID: "ses_first" })
+  expect(setup.local.model.selection()).toEqual({ providerID: "provider", modelID: "first", variant: "low" })
+  setup.local.agent.move(1)
+  expect(setup.local.agent.current()?.id).toBe("plan")
+  expect(setup.local.model.selection()).toEqual({ providerID: "provider", modelID: "first", variant: "low" })
+  setup.local.model.set({ providerID: "provider", modelID: "third" })
+  setup.local.model.variant.set("high")
+  setup.local.agent.move(-1)
+  expect(setup.local.agent.current()?.id).toBe("build")
+  expect(setup.local.model.selection()).toEqual({ providerID: "provider", modelID: "third", variant: "high" })
+})
+
+test("an agent with a configured model keeps it without leaking into other agents", async () => {
+  await using setup = await renderLocal({
+    models: [model("first"), model("second"), model("third")],
+    agents: [agent("build"), agent("review", { providerID: "provider", id: "second" })],
+    sessions: [session("ses_first", { providerID: "provider", id: "first" })],
+  })
+  await setup.data.session.sync("ses_first")
+  setup.route.navigate({ type: "session", sessionID: "ses_first" })
+  setup.local.agent.set("review")
+  expect(setup.local.model.current()?.modelID).toBe("second")
+  setup.local.agent.set("build")
+  expect(setup.local.model.current()?.modelID).toBe("first")
+})
+
 test("recent models picked in another client do not change the open tab", async () => {
   await using setup = await renderLocal({
     models: [model("first"), model("second")],
