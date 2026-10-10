@@ -103,10 +103,13 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
               duration: 3000,
             })
           batch(() => {
-            const changed = this.current()?.id !== id
+            const previous = this.current()
+            const changed = previous?.id !== id
+            const carried = changed && !previous?.model ? model.selection() : undefined
             if (changed) model.remember()
             setAgentStore("current", id)
             if (route.data.type === "session") setAgentStore("draftBySession", route.data.sessionID, { agent: id })
+            if (carried && model.carry(carried)) return
             // Retain both selections while agent and model commits arrive separately.
             const selected = changed && route.data.type === "session" ? model.current() : undefined
             if (selected) model.set(selected)
@@ -416,6 +419,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       return {
         current: currentModel,
         selection: currentSelection,
+        carry,
         remember() {
           const current = agent.current()
           const selection = currentSelection()
