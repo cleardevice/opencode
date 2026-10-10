@@ -47,20 +47,25 @@ export const layer = Layer.effect(
 
 export const node = makeGlobalNode({ service: Service, layer, deps: [] })
 
+export function authored(entries: readonly Entry[]) {
+  return entries
+    .filter((entry): entry is Document => entry.type === "document")
+    .toReversed()
+    .flatMap((entry) => entry.info.experimental?.policies ?? [])
+    .map((policy) => ({ ...policy, message: "Blocked by configuration policy" }))
+}
+
+export function organized(organization: State) {
+  return organization.statements.map((policy) => ({
+    ...policy,
+    message: organization.organization
+      ? `Blocked by ${organization.organization}'s policy`
+      : "Blocked by your organization's policy",
+  }))
+}
+
 export function statements(entries: readonly Entry[], organization: State) {
-  return [
-    ...entries
-      .filter((entry): entry is Document => entry.type === "document")
-      .toReversed()
-      .flatMap((entry) => entry.info.experimental?.policies ?? [])
-      .map((policy) => ({ ...policy, message: "Blocked by configuration policy" })),
-    ...organization.statements.map((policy) => ({
-      ...policy,
-      message: organization.organization
-        ? `Blocked by ${organization.organization}'s policy`
-        : "Blocked by your organization's policy",
-    })),
-  ]
+  return [...authored(entries), ...organized(organization)]
 }
 
 export function decision(

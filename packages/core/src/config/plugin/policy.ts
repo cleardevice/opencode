@@ -24,8 +24,15 @@ export const Plugin = define({
     // Authored documents reverse so user-global policy outranks repository policy; organization statements
     // from the connected Console follow every authored one and have the final say.
     const policies = () => ManagedPolicy.statements(loaded.entries, managed.current())
+    // Provider availability evaluates authored policies last so a user's own `provider.use`
+    // rules can override an organization-wide deny (for example when routing through a
+    // self-hosted gateway). Tool and integration denies stay organization-first.
+    const providerPolicies = () => [
+      ...ManagedPolicy.organized(managed.current()),
+      ...ManagedPolicy.authored(loaded.entries),
+    ]
     yield* ctx.provider.transform((providers) => {
-      const current = policies()
+      const current = providerPolicies()
       for (const record of providers.list()) {
         const policy = current.findLast(
           (policy) => policy.action === "provider.use" && Wildcard.match(record.provider.id, policy.resource),
