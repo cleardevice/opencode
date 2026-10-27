@@ -48,23 +48,34 @@ export const layer = Layer.effect(
 
 export const node = makeGlobalNode({ service: Service, layer, deps: [] })
 
+export function authored(entries: readonly Entry[]) {
+  return documents(entries.filter((entry) => !(entry instanceof ConfigIntegration.Document)))
+}
+
+export function integrated(entries: readonly Entry[]) {
+  return documents(entries.filter((entry) => entry instanceof ConfigIntegration.Document))
+}
+
+function documents(entries: readonly Entry[]) {
+  return entries
+    .filter((entry): entry is Document => entry.type === "document")
+    .toReversed()
+    .flatMap((entry) =>
+      (entry.info.policies ?? []).map((policy) => ({
+        ...policy,
+        // An integration document's policies are those of the organization behind its connection.
+        message:
+          entry instanceof ConfigIntegration.Document ? blocked(entry.organization) : "Blocked by configuration policy",
+      })),
+    )
+}
+
+export function organized(organization: State) {
+  return organization.statements.map((policy) => ({ ...policy, message: blocked(organization.organization) }))
+}
+
 export function statements(entries: readonly Entry[], organization: State) {
-  return [
-    ...entries
-      .filter((entry): entry is Document => entry.type === "document")
-      .toReversed()
-      .flatMap((entry) =>
-        (entry.info.policies ?? []).map((policy) => ({
-          ...policy,
-          // An integration document's policies are those of the organization behind its connection.
-          message:
-            entry instanceof ConfigIntegration.Document
-              ? blocked(entry.organization)
-              : "Blocked by configuration policy",
-        })),
-      ),
-    ...organization.statements.map((policy) => ({ ...policy, message: blocked(organization.organization) })),
-  ]
+  return [...documents(entries), ...organized(organization)]
 }
 
 function blocked(organization: string | undefined) {

@@ -25,9 +25,18 @@ export const Plugin = define({
     // and project files. Statements from a Console serving the legacy format follow every document and have the
     // final say.
     const policies = () => ManagedPolicy.statements(loaded.entries, managed.current())
+    // Provider availability evaluates authored policies last so a user's own `provider.use`
+    // rules can override an organization-wide deny (for example when routing through a
+    // self-hosted gateway). A Console config document counts as organization policy here.
+    // Tool and integration denies stay organization-first.
+    const providerPolicies = () => [
+      ...ManagedPolicy.integrated(loaded.entries),
+      ...ManagedPolicy.organized(managed.current()),
+      ...ManagedPolicy.authored(loaded.entries),
+    ]
     const runSync = Effect.runSyncWith(yield* Effect.context())
     yield* ctx.provider.transform((providers) => {
-      const current = policies()
+      const current = providerPolicies()
       const denied: string[] = []
       for (const record of providers.list()) {
         const policy = current.findLast(

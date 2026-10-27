@@ -1,8 +1,10 @@
 import { describe, expect } from "bun:test"
 import { Document, Event, Info, type Entry } from "@opencode/schema/config"
 import { ConfigPolicy } from "@opencode/schema/config/policy"
+import { Integration } from "@opencode/schema/integration"
 import { Permission } from "@opencode/schema/permission"
 import { Config } from "@opencode/core/config"
+import { ConfigIntegration } from "@opencode/core/config/integration"
 import { ConfigPolicyPlugin } from "@opencode/core/config/plugin/policy"
 import { Bus } from "@opencode/core/bus"
 import { ManagedPolicy } from "@opencode/core/managed-policy"
@@ -163,7 +165,7 @@ describe("ConfigPolicyPlugin.Plugin", () => {
     }),
   )
 
-  it.effect("evaluates organization provider statements after every authored document", () =>
+  it.effect("lets authored provider policies override organization statements", () =>
     Effect.gen(function* () {
       const catalog = yield* Provider.Service
       const managed = yield* ManagedPolicy.Service
@@ -175,13 +177,62 @@ describe("ConfigPolicyPlugin.Plugin", () => {
       yield* managed.set({ statements: [provider("deny", "*"), provider("allow", "opencode")] })
       yield* addPlugin([document(provider("allow", "anthropic"))])
 
-      expect(yield* catalog.get(Provider.ID.anthropic)).toBeUndefined()
+      // Authored `allow anthropic` outranks the organization's `deny *`.
+      expect(yield* catalog.get(Provider.ID.anthropic)).toBeDefined()
+      // No authored statement matches these, so the organization statements still decide.
       expect(yield* catalog.get(Provider.ID.openai)).toBeUndefined()
       expect(yield* catalog.get(Provider.ID.opencode)).toBeDefined()
     }),
   )
 
-  it.effect("lets an organization allow restore a provider denied by the user", () =>
+  it.effect("hides organization-allowed providers with an authored deny", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Provider.Service
+      const managed = yield* ManagedPolicy.Service
+      yield* catalog.transform((catalog) => {
+        catalog.update(Provider.ID.make("gateway"), () => {})
+        catalog.update(Provider.ID.opencode, () => {})
+        catalog.update(Provider.ID.make("opencode-go"), () => {})
+        catalog.update(Provider.ID.make("deepinfra"), () => {})
+      })
+      yield* managed.set({
+        statements: [provider("deny", "*"), provider("allow", "opencode"), provider("allow", "opencode-go")],
+      })
+      yield* addPlugin([document(provider("deny", "*"), provider("allow", "gateway"))])
+
+      // The authored rules run last: `allow gateway` beats `deny *`, and `deny *` beats the
+      // organization's allows, leaving only the self-hosted gateway provider available.
+      expect(yield* catalog.get(Provider.ID.make("gateway"))).toBeDefined()
+      expect(yield* catalog.get(Provider.ID.opencode)).toBeUndefined()
+      expect(yield* catalog.get(Provider.ID.make("opencode-go"))).toBeUndefined()
+      expect(yield* catalog.get(Provider.ID.make("deepinfra"))).toBeUndefined()
+    }),
+  )
+
+  it.effect("ranks Console config document provider policies below authored documents", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Provider.Service
+      yield* catalog.transform((catalog) => {
+        catalog.update(Provider.ID.make("gateway"), () => {})
+        catalog.update(Provider.ID.opencode, () => {})
+        catalog.update(Provider.ID.make("opencode-go"), () => {})
+      })
+      yield* addPlugin([
+        ConfigIntegration.make({
+          integrationID: Integration.ID.make("opencode"),
+          connection: { type: "env", name: "OPENCODE_API_KEY" },
+          info: { policies: [provider("deny", "*"), provider("allow", "opencode"), provider("allow", "opencode-go")] },
+        }),
+        document(provider("deny", "*"), provider("allow", "gateway")),
+      ])
+
+      expect(yield* catalog.get(Provider.ID.make("gateway"))).toBeDefined()
+      expect(yield* catalog.get(Provider.ID.opencode)).toBeUndefined()
+      expect(yield* catalog.get(Provider.ID.make("opencode-go"))).toBeUndefined()
+    }),
+  )
+
+  it.effect("lets an authored deny remove a provider the organization allows", () =>
     Effect.gen(function* () {
       const catalog = yield* Provider.Service
       const managed = yield* ManagedPolicy.Service
@@ -189,7 +240,7 @@ describe("ConfigPolicyPlugin.Plugin", () => {
       yield* managed.set({ statements: [provider("allow", "openai")] })
       yield* addPlugin([document(provider("deny", "openai"))])
 
-      expect(yield* catalog.get(Provider.ID.openai)).toBeDefined()
+      expect(yield* catalog.get(Provider.ID.openai)).toBeUndefined()
     }),
   )
 
