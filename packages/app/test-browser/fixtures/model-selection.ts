@@ -311,7 +311,8 @@ test("a promoted draft leaves the next draft empty even when its Session is neve
 
 test("promoting into a workspace no provider shows writes it there and only there", () => {
   const draft = fixture()
-  const worktree = fixture()
+  // Agents with a configured model keep per-agent memory, which shows the promoted choices.
+  const worktree = fixture({ agents: [agent("build", key("a")), agent("plan", key("a"))] })
   draft.set("route", "id", undefined)
   const { local } = draft.mount()
   const choices = { plan: { providerID: "provider", modelID: "c", variant: { type: "named", value: "low" } } } as const
@@ -372,6 +373,40 @@ test("remembers distinct variants for agents using the same model, scoped to the
   expect(selection(local)).toEqual({ agent: "build", model: "b", variant: "high" })
   f.set("route", "id", "ses_a")
   expect(selection(local)).toEqual({ agent: "plan", model: "a", variant: "low" })
+})
+
+test("switching agents without a configured model keeps the session's model and variant", () => {
+  const f = fixture({ session: durable("a", "low"), config: "provider/c" })
+  const { local } = f.mount()
+  expect(selection(local)).toEqual({ agent: "build", model: "a", variant: "low" })
+  local.agent.set("plan")
+  expect(selection(local)).toEqual({ agent: "plan", model: "a", variant: "low" })
+  local.model.set(key("b"))
+  local.model.variant.set("high")
+  local.agent.set("build")
+  expect(selection(local)).toEqual({ agent: "build", model: "b", variant: "high" })
+})
+
+test("an agent with a configured model keeps it without leaking into other agents", () => {
+  const f = fixture({ session: durable("a"), agents: [agent("build"), agent("review", key("b"))] })
+  const { local } = f.mount()
+  local.agent.set("review")
+  expect(local.model.current()?.id).toBe("b")
+  local.agent.set("build")
+  expect(local.model.current()?.id).toBe("a")
+})
+
+test("new-session drafts keep their model and variant across agents without a configured model", () => {
+  const f = fixture({ config: "provider/a" })
+  f.set("route", "id", undefined)
+  const { local, composer } = f.mount(true)
+
+  if (!composer) throw new Error("missing draft composer")
+  composer.set(key("c"))
+  composer.variant.set("high")
+  local.agent.set("plan")
+  expect(composer.current()?.id).toBe("c")
+  expect(composer.variant.current()).toBe("high")
 })
 
 test("restores each agent's model and variant after provider remount", () => {

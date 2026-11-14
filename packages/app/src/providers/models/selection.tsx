@@ -433,10 +433,18 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         if (!item) return
 
         batch(() => {
+          const left = agent.current()
           const previous = snapshot()
 
           if (previous.agent === item.name) return
           edit({ type: "agent", agent: item.name, previous })
+
+          // Agents without a configured model keep the tab's model and variant instead of their own memory.
+          if (previous.choice && !left?.model && !item.model) {
+            edit({ type: "model", agent: item.name, choice: copyChoice(previous.choice) })
+
+            return
+          }
           // Pin both choices while the agent and model acknowledgments arrive separately.
           const selected = current()
 

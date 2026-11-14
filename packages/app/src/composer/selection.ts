@@ -146,6 +146,10 @@ export function createComposerModelSelection(input: {
         batch(() => {
           const model = prompt.model.current()
           setRemembered(previous, model ? { providerID: model.providerID, modelID: model.modelID } : undefined)
+
+          // Agents without a configured model keep the draft's model and variant.
+          if (model && !input.agent()?.model && !local.agent.list().find((item) => item.name === previous)?.model)
+            return
           prompt.model.set(remembered[name] ? { ...remembered[name] } : undefined)
         })
       },
